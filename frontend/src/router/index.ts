@@ -10,6 +10,7 @@ const router = createRouter({
     { path: '/metrics/:id', name: 'metric-detail', component: () => import('../pages/MetricDetailPage.vue'), meta: { title: '指标详情' } },
     { path: '/metrics/:id/dsl', name: 'dsl-editor', component: () => import('../pages/DslEditorPage.vue'), meta: { title: 'DSL 编辑器' } },
     { path: '/graph', name: 'graph', component: () => import('../pages/DependencyGraphPage.vue'), meta: { title: '依赖图' } },
+    { path: '/merges', name: 'metric-merges', component: () => import('../pages/MergePage.vue'), meta: { title: '指标合并' } },
     { path: '/checks', name: 'checks', component: () => import('../pages/ConflictsPage.vue'), meta: { title: '一致性检查' } },
     { path: '/:pathMatch(.*)*', redirect: '/catalog' },
   ],

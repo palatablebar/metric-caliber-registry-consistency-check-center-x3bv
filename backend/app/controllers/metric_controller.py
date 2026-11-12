@@ -17,11 +17,14 @@ def list_metrics(
     domain: str | None = None,
     status: str | None = None,
     team_id: int | None = None,
+    include_merged: bool = False,
     page: int | None = 1,
     page_size: int | None = 50,
 ) -> dict:
     current_page, current_size = page_args(page, page_size)
-    return metric_service.list_metrics(db, q, domain, status, team_id, current_page, current_size)
+    return metric_service.list_metrics(
+        db, q, domain, status, team_id, current_page, current_size, include_merged=include_merged
+    )
 
 
 def get_metric(db: Session, metric_id: int) -> dict:

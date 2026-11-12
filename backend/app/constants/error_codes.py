@@ -19,6 +19,10 @@ class ErrorCode(str, Enum):
     UNAUTHORIZED = "MTR-1013"
     TEAM_NOT_FOUND = "MTR-1014"
     EXPORT_EMPTY = "MTR-1015"
+    MERGE_SAME_METRIC = "MTR-1016"
+    METRIC_ALREADY_MERGED = "MTR-1017"
+    MERGE_CONFLICT = "MTR-1018"
+    MERGE_NOT_FOUND = "MTR-1019"
 
 
 ERROR_MESSAGES = {
@@ -37,6 +41,10 @@ ERROR_MESSAGES = {
     ErrorCode.UNAUTHORIZED: "未登录或登录已过期",
     ErrorCode.TEAM_NOT_FOUND: "团队不存在",
     ErrorCode.EXPORT_EMPTY: "该批次没有可导出的冲突记录",
+    ErrorCode.MERGE_SAME_METRIC: "主指标与旧编码不能是同一个指标",
+    ErrorCode.METRIC_ALREADY_MERGED: "该指标编码已被并入其他主指标",
+    ErrorCode.MERGE_CONFLICT: "指标合并与当前目录状态冲突",
+    ErrorCode.MERGE_NOT_FOUND: "合并记录不存在或不适用于该操作",
 }
 
 ERROR_STATUS = {
@@ -55,6 +63,10 @@ ERROR_STATUS = {
     ErrorCode.UNAUTHORIZED: 401,
     ErrorCode.TEAM_NOT_FOUND: 404,
     ErrorCode.EXPORT_EMPTY: 409,
+    ErrorCode.MERGE_SAME_METRIC: 422,
+    ErrorCode.METRIC_ALREADY_MERGED: 409,
+    ErrorCode.MERGE_CONFLICT: 409,
+    ErrorCode.MERGE_NOT_FOUND: 404,
 }
 
 

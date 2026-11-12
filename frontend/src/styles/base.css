@@ -125,6 +125,8 @@ button.index-card { cursor: pointer; }
 .badge.active { color: var(--ok); }
 .badge.draft { color: var(--ink-soft); }
 .badge.deprecated { color: var(--vermilion-deep); }
+.badge.merged { color: var(--gold); background: var(--gold-wash); }
+.badge.rolled_back { color: var(--ink-soft); }
 .badge.high { color: var(--vermilion-deep); background: var(--vermilion-wash); }
 .badge.medium { color: var(--gold); background: var(--gold-wash); }
 .badge.low { color: var(--sage); background: var(--sage-wash); }

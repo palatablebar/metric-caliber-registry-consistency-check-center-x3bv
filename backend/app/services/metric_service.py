@@ -4,12 +4,28 @@ from sqlalchemy.orm import Session
 
 from app.constants.domains import DOMAIN_LABELS, DOMAIN_ORDER
 from app.constants.error_codes import AppError, ErrorCode
+from app.constants.merge_status import MERGE_STATUS_LABELS
 from app.constants.metric_status import STATUS_LABELS
 from app.middlewares.rbac import assert_can_edit_metric
-from app.models import MetricDefinition, MetricDependency, MetricVersion, OwnerTeam, User
+from app.models import MetricDefinition, MetricDependency, MetricMerge, MetricVersion, OwnerTeam, User
 from app.utils.formatters import iso
 from app.utils.logger import log_event
 from app.utils.pagination import paginate
+
+
+def _merge_brief(db: Session, metric: MetricDefinition) -> dict | None:
+    """Pointer block rendered on merged (alias) metric rows."""
+    if metric.merged_into_metric_id is None:
+        return None
+    primary = db.get(MetricDefinition, metric.merged_into_metric_id)
+    if primary is None:
+        return None
+    return {
+        "id": primary.id,
+        "key": primary.metric_key,
+        "name": primary.display_name,
+        "status": primary.status,
+    }
 
 
 def serialize_version(version: MetricVersion | None, team: OwnerTeam | None = None) -> dict | None:
@@ -63,7 +79,12 @@ def _team_map(db: Session) -> dict[int, OwnerTeam]:
     return {team.id: team for team in db.scalars(select(OwnerTeam)).all()}
 
 
-def serialize_metric(metric: MetricDefinition, versions: list[MetricVersion], teams: dict[int, OwnerTeam]) -> dict:
+def serialize_metric(
+    metric: MetricDefinition,
+    versions: list[MetricVersion],
+    teams: dict[int, OwnerTeam],
+    merge_into: dict | None = None,
+) -> dict:
     ordered = sorted(versions, key=lambda version: version.version_no)
     current = next((version for version in reversed(ordered) if version.is_current), ordered[-1] if ordered else None)
     return {
@@ -85,16 +106,20 @@ def serialize_metric(metric: MetricDefinition, versions: list[MetricVersion], te
         "team_count": len({version.team_id for version in ordered}),
         "current_version": serialize_version(current, teams.get(current.team_id) if current else None),
         "updated_at": iso(metric.updated_at),
+        "is_merged": metric.merged_into_metric_id is not None,
+        "merge_reason": metric.merge_reason,
+        "merged_into": merge_into,
     }
 
 
-def _domain_counts(db: Session) -> dict[str, int]:
+def _domain_counts(db: Session, include_merged: bool = False) -> dict[str, int]:
     from sqlalchemy import func
 
     counts = {domain: 0 for domain in DOMAIN_ORDER}
-    rows = db.execute(
-        select(MetricDefinition.domain, func.count(MetricDefinition.id)).group_by(MetricDefinition.domain)
-    ).all()
+    stmt = select(MetricDefinition.domain, func.count(MetricDefinition.id)).group_by(MetricDefinition.domain)
+    if not include_merged:
+        stmt = stmt.where(MetricDefinition.merged_into_metric_id.is_(None))
+    rows = db.execute(stmt).all()
     for domain, total in rows:
         counts[str(domain)] = int(total)
     return counts
@@ -108,8 +133,16 @@ def list_metrics(
     team_id: int | None = None,
     page: int = 1,
     page_size: int = 50,
+    include_merged: bool = False,
 ) -> dict:
+    # merged alias entries are hidden from the default catalog so downstream
+    # metrics and dashboards are never counted twice. They resurface for
+    # historical queries: an explicit key/name search, the merged-status filter,
+    # or the include_merged switch on the catalog page.
+    show_merged = include_merged or bool(q) or status == "merged"
     stmt = select(MetricDefinition)
+    if not show_merged:
+        stmt = stmt.where(MetricDefinition.merged_into_metric_id.is_(None))
     if q:
         pattern = f"%{q.strip()}%"
         stmt = stmt.where(
@@ -130,12 +163,15 @@ def list_metrics(
     versions_map = load_versions_for(db, [item.id for item in items])
     teams = _team_map(db)
     return {
-        "items": [serialize_metric(item, versions_map.get(item.id, []), teams) for item in items],
+        "items": [
+            serialize_metric(item, versions_map.get(item.id, []), teams, _merge_brief(db, item)) for item in items
+        ],
         "total": total,
         "page": page,
         "page_size": page_size,
-        "domain_counts": _domain_counts(db),
+        "domain_counts": _domain_counts(db, include_merged=show_merged),
         "domains": [{"value": domain, "label": DOMAIN_LABELS[domain]} for domain in DOMAIN_ORDER],
+        "include_merged": show_merged,
     }
 
 
@@ -152,7 +188,62 @@ def get_metric_detail(db: Session, metric_id: int) -> dict:
         select(MetricVersion).where(MetricVersion.metric_id == metric.id).order_by(MetricVersion.version_no)
     ).all()
     teams = _team_map(db)
-    data = serialize_metric(metric, list(versions), teams)
+    data = serialize_metric(metric, list(versions), teams, _merge_brief(db, metric))
+
+    # alias entry: which merge record moved this old code, kept for the audit trail
+    if metric.merged_into_metric_id is not None:
+        alias_merge = db.scalar(
+            select(MetricMerge).where(
+                MetricMerge.source_metric_id == metric.id,
+                MetricMerge.primary_metric_id == metric.merged_into_metric_id,
+            )
+        )
+        data["merge_record"] = (
+            {
+                "id": alias_merge.id,
+                "status": alias_merge.status,
+                "reason": alias_merge.reason,
+                "merged_by": alias_merge.merged_by,
+                "merged_at": iso(alias_merge.merged_at),
+            }
+            if alias_merge
+            else None
+        )
+
+    # primary metric: every old code currently folded into it
+    alias_rows = db.scalars(
+        select(MetricDefinition).where(MetricDefinition.merged_into_metric_id == metric.id)
+        .order_by(MetricDefinition.metric_key)
+    ).all()
+    data["merged_aliases"] = [
+        {
+            "id": alias.id,
+            "key": alias.metric_key,
+            "name": alias.display_name,
+            "status": alias.status,
+            "merge_reason": alias.merge_reason,
+        }
+        for alias in alias_rows
+    ]
+    merge_rows = db.scalars(
+        select(MetricMerge)
+        .where(MetricMerge.primary_metric_id == metric.id)
+        .order_by(MetricMerge.id.desc())
+    ).all()
+    data["merge_records"] = [
+        {
+            "id": row.id,
+            "status": row.status,
+            "status_label": MERGE_STATUS_LABELS.get(row.status, row.status),
+            "source_metric_id": row.source_metric_id,
+            "reason": row.reason,
+            "merged_by": row.merged_by,
+            "merged_at": iso(row.merged_at),
+            "rolled_back_at": iso(row.rolled_back_at),
+        }
+        for row in merge_rows
+    ]
+
     data["versions"] = [serialize_version(version, teams.get(version.team_id)) for version in versions]
 
     outgoing = db.scalars(select(MetricDependency).where(MetricDependency.from_metric_id == metric.id)).all()
@@ -233,6 +324,12 @@ def create_metric(db: Session, user: User, payload) -> MetricDefinition:
 
 def update_metric(db: Session, user: User, metric: MetricDefinition, payload) -> MetricDefinition:
     assert_can_edit_metric(user, metric)
+    if metric.merged_into_metric_id is not None:
+        raise AppError(
+            ErrorCode.MERGE_CONFLICT,
+            message="该指标编码已并入主指标，历史入口只读；请在主指标上修改口径",
+            detail={"metric_id": metric.id, "merged_into_metric_id": metric.merged_into_metric_id},
+        )
     before = {
         "display_name": metric.display_name,
         "status": metric.status,

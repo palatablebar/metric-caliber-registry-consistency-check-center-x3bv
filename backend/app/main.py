@@ -15,7 +15,7 @@ from app.middlewares.audit_logger import AuditMiddleware
 from app.middlewares.auth import AuthMiddleware
 from app.middlewares.error_handler import RequestIdMiddleware, install_error_handlers
 from app.middlewares.quota import RateLimitMiddleware
-from app.routes import audit, auth, check, dependency, health, metric, team
+from app.routes import audit, auth, check, dependency, health, merge, metric, team
 from app.utils.logger import log_event
 
 
@@ -64,6 +64,7 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(auth.router, prefix="/api")
+app.include_router(merge.router, prefix="/api")
 app.include_router(metric.router, prefix="/api")
 app.include_router(dependency.router, prefix="/api")
 app.include_router(check.router, prefix="/api")
@@ -88,6 +89,8 @@ def index() -> dict:
             "/metrics/{id}",
             "/metrics/{id}/versions",
             "/metrics/{id}/compare",
+            "/metrics/merges",
+            "/metrics/merges/{id}/rollback",
             "/dsl/parse",
             "/dependencies/graph",
             "/metrics/{id}/impact",

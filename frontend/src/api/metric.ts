@@ -6,6 +6,7 @@ export interface MetricQuery {
   domain?: string
   status?: string
   team_id?: number
+  include_merged?: boolean
   page?: number
   page_size?: number
 }

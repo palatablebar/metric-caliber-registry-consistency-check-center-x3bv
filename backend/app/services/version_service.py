@@ -46,10 +46,21 @@ def _apply_parsed_tuple(version: MetricVersion, parsed: dict) -> None:
     version.parse_error = None
 
 
+def _resolve_metric_key(db: Session, key: str) -> MetricDefinition | None:
+    """Resolve a DSL ``using`` reference, following the merge pointer so an old
+    code still written in historical DSL lands on the surviving primary metric."""
+    target = db.scalar(select(MetricDefinition).where(MetricDefinition.metric_key == key))
+    if target is not None and target.merged_into_metric_id is not None:
+        primary = db.get(MetricDefinition, target.merged_into_metric_id)
+        if primary is not None:
+            return primary
+    return target
+
+
 def _sync_dsl_dependencies(db: Session, metric: MetricDefinition, dependency_keys: list[str]) -> None:
     """Upsert metric→metric edges declared by the DSL `using (...)` clause."""
     for key in dependency_keys:
-        target = db.scalar(select(MetricDefinition).where(MetricDefinition.metric_key == key))
+        target = _resolve_metric_key(db, key)
         if target is None:
             raise AppError(
                 ErrorCode.DSL_SEMANTIC,
@@ -76,6 +87,12 @@ def _sync_dsl_dependencies(db: Session, metric: MetricDefinition, dependency_key
 def create_version(db: Session, user: User, metric_id: int, payload) -> MetricVersion:
     metric = get_metric_or_404(db, metric_id)
     assert_can_edit_metric(user, metric)
+    if metric.merged_into_metric_id is not None:
+        raise AppError(
+            ErrorCode.MERGE_CONFLICT,
+            message="该指标编码已并入主指标，历史入口只读，不能再提交新版本",
+            detail={"metric_id": metric.id, "merged_into_metric_id": metric.merged_into_metric_id},
+        )
     parsed = parse_or_raise(payload.dsl_text)
 
     if user.role == Role.OWNER.value:
@@ -134,6 +151,12 @@ def create_version(db: Session, user: User, metric_id: int, payload) -> MetricVe
 def update_version(db: Session, user: User, version: MetricVersion, dsl_text: str) -> MetricVersion:
     metric = get_metric_or_404(db, version.metric_id)
     assert_can_edit_metric(user, metric)
+    if metric.merged_into_metric_id is not None:
+        raise AppError(
+            ErrorCode.MERGE_CONFLICT,
+            message="该指标编码已并入主指标，历史版本只读",
+            detail={"metric_id": metric.id, "merged_into_metric_id": metric.merged_into_metric_id},
+        )
     parsed = parse_or_raise(dsl_text)
     version.dsl_text = dsl_text.strip()
     _apply_parsed_tuple(version, parsed)

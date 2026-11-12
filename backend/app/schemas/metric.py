@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field, field_validator
 
 from app.constants.domains import ALL_DOMAINS
-from app.constants.metric_status import ALL_METRIC_STATUSES
+from app.constants.metric_status import WRITABLE_METRIC_STATUSES
 
 
 class MetricCreate(BaseModel):
@@ -23,8 +23,8 @@ class MetricCreate(BaseModel):
     @field_validator("status")
     @classmethod
     def check_status(cls, value: str) -> str:
-        if value not in ALL_METRIC_STATUSES:
-            raise ValueError(f"status must be one of {ALL_METRIC_STATUSES}")
+        if value not in WRITABLE_METRIC_STATUSES:
+            raise ValueError(f"status must be one of {WRITABLE_METRIC_STATUSES}")
         return value
 
 
@@ -38,9 +38,15 @@ class MetricUpdate(BaseModel):
     @field_validator("status")
     @classmethod
     def check_status(cls, value: str | None) -> str | None:
-        if value is not None and value not in ALL_METRIC_STATUSES:
-            raise ValueError(f"status must be one of {ALL_METRIC_STATUSES}")
+        if value is not None and value not in WRITABLE_METRIC_STATUSES:
+            raise ValueError(f"status must be one of {WRITABLE_METRIC_STATUSES}")
         return value
+
+
+class MetricMergeRequest(BaseModel):
+    primary_metric_id: int = Field(ge=1)
+    source_metric_id: int = Field(ge=1)
+    reason: str | None = Field(default=None, max_length=255)
 
 
 class VersionCreate(BaseModel):

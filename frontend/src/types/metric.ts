@@ -1,5 +1,39 @@
-export type MetricStatus = 'draft' | 'active' | 'deprecated'
+export type MetricStatus = 'draft' | 'active' | 'deprecated' | 'merged'
 export type DomainKey = 'growth' | 'trade' | 'content' | 'experience'
+
+export interface MergePointer {
+  id: number
+  key: string
+  name: string
+  status: string
+}
+
+export interface MergeRecordBrief {
+  id: number
+  status: string
+  reason: string | null
+  merged_by: string | null
+  merged_at: string | null
+}
+
+export interface MergedAlias {
+  id: number
+  key: string
+  name: string
+  status: string
+  merge_reason: string | null
+}
+
+export interface MergeRecordRow {
+  id: number
+  status: string
+  status_label: string
+  source_metric_id: number
+  reason: string | null
+  merged_by: string | null
+  merged_at: string | null
+  rolled_back_at: string | null
+}
 
 export interface Tuple {
   agg: string | null
@@ -64,10 +98,16 @@ export interface Metric {
   team_count: number
   current_version: MetricVersion | null
   updated_at: string | null
+  is_merged: boolean
+  merge_reason: string | null
+  merged_into: MergePointer | null
 }
 
 export interface MetricDetail extends Metric {
   versions: MetricVersion[]
+  merge_record: MergeRecordBrief | null
+  merged_aliases: MergedAlias[]
+  merge_records: MergeRecordRow[]
   dependencies: {
     upstream: DependencyRef[]
     downstream: DependencyRef[]
@@ -82,6 +122,7 @@ export interface MetricListResponse {
   page_size: number
   domain_counts: Record<string, number>
   domains: { value: DomainKey; label: string }[]
+  include_merged?: boolean
 }
 
 export interface DslToken {

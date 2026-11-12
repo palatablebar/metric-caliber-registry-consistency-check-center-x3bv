@@ -63,8 +63,19 @@ def _metric_dict(metric: MetricDefinition) -> dict:
 
 
 def _load_graph_inputs(db: Session):
-    metrics = db.scalars(select(MetricDefinition)).all()
-    edges = db.scalars(select(MetricDependency)).all()
+    # merged alias entries are historical read-only pointers whose relations
+    # were migrated to the primary metric; exclude them so the check batch's
+    # graph/topology stats never double-count a downstream or dashboard
+    metrics = list(
+        db.scalars(select(MetricDefinition).where(MetricDefinition.merged_into_metric_id.is_(None))).all()
+    )
+    live_ids = {metric.id for metric in metrics}
+    all_edges = list(db.scalars(select(MetricDependency)).all())
+    edges = [
+        edge
+        for edge in all_edges
+        if edge.from_metric_id in live_ids and (edge.to_metric_id is None or edge.to_metric_id in live_ids)
+    ]
     metric_dicts = [_metric_dict(metric) for metric in metrics]
     edge_dicts = [
         {"from_id": edge.from_metric_id, "to_id": edge.to_metric_id, "relation": edge.relation}
@@ -192,6 +203,9 @@ def execute_check(check_id: int) -> dict:
         metric_query = select(MetricDefinition).order_by(MetricDefinition.metric_key)
         if check.scope != "all":
             metric_query = metric_query.where(MetricDefinition.domain == check.scope)
+        # merged alias entries are historical read-only pointers; their versions
+        # stay attached for history but must not be re-checked as separate metrics
+        metric_query = metric_query.where(MetricDefinition.merged_into_metric_id.is_(None))
         metrics = list(db.scalars(metric_query).all())
         metric_by_key = {metric.metric_key: metric for metric in metrics}
 

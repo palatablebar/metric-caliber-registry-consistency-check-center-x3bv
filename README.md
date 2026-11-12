@@ -25,7 +25,7 @@
 
 ## 3. 核心实体（6）
 
-`MetricDefinition`（指标 key/域/负责团队/状态）· `MetricVersion`（版本号/DSL/五元组/生效时间，可跨团队）· `MetricDependency`（指标→指标 / 指标→物理表）· `ConsistencyCheck`（批次/状态/分数/汇总）· `ConflictFinding`（冲突维度/严重度/证据/影响面）· `OwnerTeam`（团队/域/负责人/SLA）。另有 `User` 与 `AuditLog` 作为横切支撑。
+`MetricDefinition`（指标 key/域/负责团队/状态，含 `merged_into_metric_id` 合并指针）· `MetricVersion`（版本号/DSL/五元组/生效时间，可跨团队）· `MetricDependency`（指标→指标 / 指标→物理表）· `MetricMerge`（重复编码合并记录：主/旧指标、状态、合并前后快照、回滚信息）· `ConsistencyCheck`（批次/状态/分数/汇总）· `ConflictFinding`（冲突维度/严重度/证据/影响面）· `OwnerTeam`（团队/域/负责人/SLA）。另有 `User` 与 `AuditLog` 作为横切支撑。
 
 ## 4. 两个后端真算算法
 
@@ -61,6 +61,7 @@ metric active_users = count(distinct user_id) from fact_visit
 4. `/metrics/:id/dsl` DSL 编辑器（实时后端解析 + token 高亮 + 依赖预览 + 保存新版本）
 5. `/graph` 依赖图（手写 SVG 分层布局，环红色虚线、孤儿虚线，点击看影响面）
 6. `/checks` 一致性检查与冲突详情（分数、冲突表、环/孤儿、CSV 导出、管理员可确认/解决）
+7. `/merges` 指标合并工作台（admin；合并预演、执行/幂等/回滚、合并前后快照核对；其他角色只读台账）
 
 ## 6. 快速启动
 
@@ -123,7 +124,17 @@ worker/{Dockerfile,entrypoint.sh,healthy.py}
 
 ## 11. 主要 API
 
-所有接口挂载在 `/api` 前缀下（Nginx 与后端直连一致）：`POST /auth/login` · `GET /auth/me` · `GET /metrics` · `GET /metrics/{id}` · `POST /metrics` · `PATCH /metrics/{id}` · `GET/POST /metrics/{id}/versions` · `PATCH /versions/{id}` · `GET /metrics/{id}/compare` · `POST /dsl/parse` · `GET /dependencies/graph` · `GET /metrics/{id}/impact` · `GET/POST /checks` · `GET /checks/latest` · `GET /checks/{id}` · `GET /checks/{id}/impact.csv` · `PATCH /findings/{id}` · `GET /teams` · `GET /audit/recent` · `GET /health`。
+所有接口挂载在 `/api` 前缀下（Nginx 与后端直连一致）：`POST /auth/login` · `GET /auth/me` · `GET /metrics` · `GET /metrics/{id}` · `POST /metrics` · `PATCH /metrics/{id}` · `GET/POST /metrics/{id}/versions` · `PATCH /versions/{id}` · `GET /metrics/{id}/compare` · `POST /dsl/parse` · `GET /dependencies/graph` · `GET /metrics/{id}/impact` · `GET/POST /checks` · `GET /checks/latest` · `GET /checks/{id}` · `GET /checks/{id}/impact.csv` · `PATCH /findings/{id}` · `GET/POST /metrics/merges` · `POST /metrics/merges/preview` · `POST /metrics/merges/{id}/rollback` · `GET /teams` · `GET /audit/recent` · `GET /health`。
+
+### 11.1 重复编码合并（指标合并工作台 `/merges`，仅 admin）
+
+治理委员会把两个重复登记的指标编码并成一个主指标时，后端保证：
+
+- **旧编码保留历史查询**：旧指标行不删除，置 `status=merged` 并写入 `merged_into_metric_id` 指向主指标；默认目录与依赖图不再计入该入口，但按 key/名称搜索、详情页、`GET /metrics/{id}` 仍可查到，历史版本与 DSL 原样保留且只读（改口径/加版本返回 `MTR-1018`）。
+- **依赖与看板只迁移一次**：迁移在单事务内完成，所有指向旧编码的 `MetricDependency` 重写到主指标并按 `(from,to,table)` 去重（含重写产生的自环/重复物理表边）；BI 看板取去重并集。合并后依赖图、影响面闭包、一致性检查都排除 alias，同一批下游与看板不会算两遍。
+- **失败即恢复**：事务内任何异常都 rollback 到合并前的目录与关系；`metric_merges.before_snapshot_json` 另存合并前完整快照，`POST /metrics/merges/{id}/rollback` 据此把指标字段与每一条关系行（含原 edge id）恢复原状，合并记录标记为 `rolled_back` 而不是删除。
+- **同一组合幂等**：`(primary_metric_id, source_metric_id)` 有唯一约束；重复提交相同组合直接返回原合并记录（`idempotent_reused=true`），不重复迁移、不新增记录；并发竞争由唯一约束兜底并返回幂等结果。回滚后再合并复用同一行并累加 `merge_count`。
+- **可核对**：合并记录内嵌合并前后的目录快照与依赖图摘要（节点/边/环/孤儿、看板并集、迁移与去重明细），工作台「合并前后」面板与主指标详情页的合并台账均可对照；每次合并/回滚写审计日志（`METRIC_MERGED` / `METRIC_MERGE_ROLLED_BACK`）。
 
 ## 12. 横切能力
 

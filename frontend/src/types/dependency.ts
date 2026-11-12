@@ -59,6 +59,11 @@ export interface ImpactPayload {
   metric_key: string
   metric_name?: string
   domain?: string
+  resolved_from?: {
+    id: number
+    metric_key: string
+    name: string
+  }
   affected_metric_count: number
   affected_metrics: { id: number; key: string; name: string; domain: string }[]
   boards: string[]

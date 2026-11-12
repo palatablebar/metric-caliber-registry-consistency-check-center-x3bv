@@ -5,6 +5,9 @@
       <div class="row">
         <router-link v-if="metric" class="btn btn-sm" :to="`/metrics/${metric.id}/dsl`">打开 DSL 编辑器</router-link>
         <router-link class="btn btn-sm" to="/graph">依赖图</router-link>
+        <router-link v-if="auth.isAdmin && !metric?.is_merged" class="btn btn-sm btn-accent" :to="`/merges?primary=${metric?.id ?? ''}`">
+          发起合并
+        </router-link>
       </div>
     </div>
 
@@ -12,6 +15,24 @@
     <ErrorNotice :error="error" class="mt-2" />
 
     <template v-if="metric">
+      <div v-if="metric.is_merged && metric.merged_into" class="merge-banner">
+        <div>
+          <span class="badge merged">历史入口 · 已并入主指标</span>
+          <p class="small mt-1">
+            旧编码 <b class="mono">{{ metric.key }}</b> 已保留用于历史查询，口径与依赖已迁移到主指标
+            <router-link class="dep-link mono" :to="`/metrics/${metric.merged_into.id}`">
+              {{ metric.merged_into.key }}
+            </router-link>
+            （{{ metric.merged_into.name }}）；本入口只读，不能再改口径或提交版本。
+          </p>
+          <p v-if="metric.merge_reason" class="hint mt-1">合并原因：{{ metric.merge_reason }}</p>
+          <p v-if="metric.merge_record" class="hint mt-1">
+            合并人 {{ metric.merge_record.merged_by ?? '—' }} · {{ metric.merge_record.merged_at ?? '—' }}
+          </p>
+        </div>
+        <router-link class="btn btn-sm btn-accent" :to="`/metrics/${metric.merged_into.id}`">打开主指标 →</router-link>
+      </div>
+
       <header class="detail-head mt-3">
         <div>
           <div class="eyebrow">{{ metric.domain_label }} · {{ metric.owner_team.name }}</div>
@@ -99,6 +120,49 @@
           @compare="runCompare"
         />
       </section>
+
+      <section v-if="metric.merged_aliases.length || metric.merge_records.length" class="mt-4">
+        <SectionHeading eyebrow="merge ledger" title="重复编码合并台账" />
+        <div v-if="metric.merged_aliases.length" class="index-card is-flat mt-2">
+          <div class="eyebrow">aliases · 历史入口（旧编码保留，依赖与看板已并入本指标，只算一次）</div>
+          <ul class="clean-list mt-2">
+            <li v-for="alias in metric.merged_aliases" :key="alias.id" class="row-between alias-row">
+              <span>
+                <router-link class="dep-link mono" :to="`/metrics/${alias.id}`">{{ alias.key }}</router-link>
+                <span class="faint small"> {{ alias.name }}</span>
+              </span>
+              <span class="row">
+                <span v-if="alias.merge_reason" class="hint">{{ alias.merge_reason }}</span>
+                <StatusBadge status="merged" label="已并入主指标" />
+              </span>
+            </li>
+          </ul>
+        </div>
+        <div v-if="metric.merge_records.length" class="table-wrap mt-2">
+          <table class="data">
+            <thead>
+              <tr>
+                <th>合并记录</th><th>旧编码</th><th>状态</th><th>原因</th><th>合并人</th><th>合并时间</th><th>回滚时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in metric.merge_records" :key="row.id">
+                <td class="mono">#{{ row.id }}</td>
+                <td>
+                  <router-link class="dep-link mono" :to="`/metrics/${row.source_metric_id}`">
+                    {{ metricKeyById(row.source_metric_id) }}
+                  </router-link>
+                </td>
+                <td><span class="badge" :class="row.status">{{ row.status_label }}</span></td>
+                <td>{{ row.reason ?? '—' }}</td>
+                <td>{{ row.merged_by ?? '—' }}</td>
+                <td class="mono">{{ row.merged_at ?? '—' }}</td>
+                <td class="mono">{{ row.rolled_back_at ?? '—' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
     </template>
   </div>
 </template>
@@ -116,11 +180,13 @@ import VersionCompareTable from '../components/metric/VersionCompareTable.vue'
 import ImpactPanel from '../components/dependency/ImpactPanel.vue'
 import { fetchMetric, compareVersions } from '../api/metric'
 import { fetchImpact } from '../api/dependency'
+import { useAuthStore } from '../stores/authStore'
 import type { MetricDetail, VersionCompare } from '../types/metric'
 import type { ImpactPayload } from '../types/dependency'
 import type { ApiError } from '../types/api'
 
 const route = useRoute()
+const auth = useAuthStore()
 const metric = ref<MetricDetail | null>(null)
 const loading = ref(false)
 const error = ref<ApiError | null>(null)
@@ -134,6 +200,11 @@ const impact = ref<ImpactPayload | null>(null)
 const impactLoading = ref(false)
 
 const metricId = computed(() => Number(route.params.id))
+
+function metricKeyById(id: number): string {
+  if (id === metric.value?.id) return metric.value.key
+  return metric.value?.merged_aliases.find((alias) => alias.id === id)?.key ?? `#${id}`
+}
 
 async function loadMetric() {
   loading.value = true
@@ -194,6 +265,12 @@ onMounted(async () => {
 .back-link { font-size: 11.5px; color: var(--ink-soft); text-decoration: underline; text-underline-offset: 3px; }
 .detail-head { display: flex; justify-content: space-between; gap: 22px; align-items: flex-start; border-bottom: 1px solid var(--rule); padding-bottom: 18px; flex-wrap: wrap; }
 .detail-badges { display: flex; gap: 8px; flex-wrap: wrap; }
+.merge-banner {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap;
+  border: 1px solid var(--gold); background: var(--gold-wash); padding: 14px 16px;
+}
+.alias-row { padding: 7px 0; border-bottom: 1px dashed var(--rule-soft); }
+.alias-row:last-child { border-bottom: 0; }
 .dep-block + .dep-block { border-top: 1px dashed var(--rule); padding-top: 10px; }
 .clean-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .dep-link { color: var(--vermilion-deep); text-decoration: underline; text-underline-offset: 3px; }

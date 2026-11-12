@@ -9,6 +9,24 @@
     <ErrorNotice :error="error" class="mt-2" />
 
     <template v-if="metric">
+      <div v-if="metric.is_merged" class="merge-banner">
+        <div>
+          <span class="badge merged">历史入口只读</span>
+          <p class="small mt-1">
+            旧编码 <b class="mono">{{ metric.key }}</b> 已并入主指标
+            <router-link
+              v-if="metric.merged_into"
+              class="dep-link mono"
+              :to="`/metrics/${metric.merged_into.id}/dsl`"
+            >{{ metric.merged_into.key }}</router-link>
+            ，不能在历史入口上修改 DSL；下方仅保留历史版本的只读解析预览。
+          </p>
+        </div>
+        <router-link v-if="metric.merged_into" class="btn btn-sm btn-accent" :to="`/metrics/${metric.merged_into.id}/dsl`">
+          去主指标编辑 →
+        </router-link>
+      </div>
+
       <header class="mt-2">
         <div class="eyebrow">dsl workbench</div>
         <h1 class="display mt-1">口径 DSL 编辑器</h1>
@@ -23,7 +41,7 @@
             <span class="label">metric DSL</span>
             <span class="faint small">{{ source.length }} / 4000</span>
           </div>
-          <textarea v-model="source" class="textarea dsl-input" spellcheck="false" rows="9" />
+          <textarea v-model="source" class="textarea dsl-input" spellcheck="false" rows="9" :readonly="metric.is_merged" />
           <div class="hint mt-1">
             语法示例：<code>metric active_users = count(distinct user_id) from fact_visit where date >= today-7 filter platform in ('ios','android') grain day</code>
           </div>
@@ -88,19 +106,19 @@
             <div class="stack mt-2" style="gap: 10px">
               <label class="field">
                 <span class="label">提交团队</span>
-                <select v-model.number="teamId" class="select" :disabled="!auth.canWrite">
+                <select v-model.number="teamId" class="select" :disabled="!auth.canWrite || metric.is_merged">
                   <option v-for="team in teams" :key="team.id" :value="team.id">{{ team.name }}（{{ team.domain_label }}）</option>
                 </select>
               </label>
               <label class="field">
                 <span class="label">生效日期</span>
-                <input v-model="effectiveFrom" type="date" class="input" :disabled="!auth.canWrite" />
+                <input v-model="effectiveFrom" type="date" class="input" :disabled="!auth.canWrite || metric.is_merged" />
               </label>
               <label class="row small" style="gap: 6px">
-                <input v-model="setCurrent" type="checkbox" :disabled="!auth.canWrite" /> 设为当前版本
+                <input v-model="setCurrent" type="checkbox" :disabled="!auth.canWrite || metric.is_merged" /> 设为当前版本
               </label>
-              <button class="btn btn-solid" :disabled="!auth.canWrite || saving" @click="save">
-                {{ saving ? '保存中…' : `保存为 v${nextVersionNo}` }}
+              <button class="btn btn-solid" :disabled="!auth.canWrite || saving || metric.is_merged" @click="save">
+                {{ metric.is_merged ? '历史入口只读' : saving ? '保存中…' : `保存为 v${nextVersionNo}` }}
               </button>
             </div>
             <p v-if="message" class="hint mt-2">{{ message }}</p>
@@ -207,6 +225,11 @@ async function save() {
 
 <style scoped>
 .back-link { font-size: 11.5px; color: var(--ink-soft); text-decoration: underline; text-underline-offset: 3px; }
+.merge-banner {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap;
+  border: 1px solid var(--gold); background: var(--gold-wash); padding: 14px 16px;
+}
+.dep-link { color: var(--vermilion-deep); text-decoration: underline; text-underline-offset: 3px; }
 .dsl-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(270px, 1fr); gap: 26px; align-items: start; }
 .dsl-input { min-height: 190px; }
 .parsed-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; border: 1px solid var(--rule); padding: 10px 12px; background: var(--paper-raised); }

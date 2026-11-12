@@ -27,13 +27,16 @@
       </div>
       <div class="summary-note">
         <span class="eyebrow">read me</span>
-        <p class="hint mt-1">同名指标三版本以卡片右上角团队区分；打开详情可做五元组比对与影响面导出。</p>
+        <p class="hint mt-1">
+          同名指标三版本以卡片右上角团队区分；打开详情可做五元组比对与影响面导出。
+          重复编码合并后，旧编码默认从目录隐藏、只保留历史查询入口，依赖与看板只在主指标上计算一次。
+        </p>
       </div>
     </section>
 
     <section class="filter-bar">
       <label class="field" style="min-width: 260px; flex: 1">
-        <span class="label">搜索（key / 名称 / 描述）</span>
+        <span class="label">搜索（key / 名称 / 描述；输入旧编码可查到历史入口）</span>
         <input v-model="q" class="input" placeholder="active_users、活跃、留存…" />
       </label>
       <div class="field">
@@ -43,8 +46,16 @@
           <option value="active">生效</option>
           <option value="draft">草稿</option>
           <option value="deprecated">已下线</option>
+          <option value="merged">已并入主指标</option>
         </select>
       </div>
+      <label class="field include-toggle">
+        <span class="label">历史入口</span>
+        <label class="switch-row">
+          <input type="checkbox" :checked="store.includeMerged" @change="toggleMerged" />
+          <span class="small">显示已并入主指标的旧编码（{{ store.mergedCount }}）</span>
+        </label>
+      </label>
       <div class="domain-tabs">
         <button
           v-for="domain in domains"
@@ -107,6 +118,11 @@ function open(metric: Metric) {
   router.push(`/metrics/${metric.id}`)
 }
 
+function toggleMerged(event: Event) {
+  store.includeMerged = (event.target as HTMLInputElement).checked
+  void store.load()
+}
+
 onMounted(() => {
   void store.load()
 })
@@ -121,6 +137,9 @@ onMounted(() => {
 .summary-cell:last-of-type { border-right: 0; }
 .summary-number { font-family: var(--font-display); font-size: 27px; color: var(--ink-strong); line-height: 1.1; }
 .filter-bar { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; padding-bottom: 16px; border-bottom: 1px solid var(--rule); margin-bottom: 22px; }
+.include-toggle { min-width: 220px; }
+.switch-row { display: flex; gap: 8px; align-items: center; border: 1px solid var(--rule); background: var(--paper-raised); padding: 8px 10px; cursor: pointer; }
+.switch-row input { accent-color: var(--vermilion); }
 .domain-tabs { display: flex; gap: 2px; flex-wrap: wrap; }
 .domain-tab {
   border: 1px solid var(--rule); background: var(--paper-raised); padding: 7px 11px; font-size: 12px; cursor: pointer;

@@ -12,6 +12,7 @@ interface CatalogState {
   q: string
   domain: string
   status: string
+  includeMerged: boolean
 }
 
 export const useCatalogStore = defineStore('catalog', {
@@ -24,6 +25,7 @@ export const useCatalogStore = defineStore('catalog', {
     q: '',
     domain: '',
     status: '',
+    includeMerged: false,
   }),
   getters: {
     groups: (state): { domain: string; label: string; items: Metric[] }[] => {
@@ -37,7 +39,9 @@ export const useCatalogStore = defineStore('catalog', {
         .filter((domain) => (byDomain[domain] ?? []).length > 0)
         .map((domain) => ({ domain, label: labels[domain], items: byDomain[domain] }))
     },
-    multiVersionCount: (state): number => state.items.filter((metric) => metric.version_count > 1).length,
+    multiVersionCount: (state): number =>
+      state.items.filter((metric) => metric.version_count > 1 && !metric.is_merged).length,
+    mergedCount: (state): number => state.items.filter((metric) => metric.is_merged).length,
   },
   actions: {
     async load() {
@@ -48,6 +52,7 @@ export const useCatalogStore = defineStore('catalog', {
           q: this.q || undefined,
           domain: this.domain || undefined,
           status: this.status || undefined,
+          include_merged: this.includeMerged || undefined,
           page_size: 100,
         })
         this.items = result.items

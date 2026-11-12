@@ -9,8 +9,23 @@ from app.services.metric_service import get_metric_or_404
 
 
 def _load(db: Session):
-    metrics = db.scalars(select(MetricDefinition).order_by(MetricDefinition.metric_key)).all()
+    # Merged alias entries are kept for historical queries but must never appear
+    # as graph nodes: their relations were migrated to the primary metric, so
+    # including them would count the same downstream metrics and dashboards twice.
+    metrics = db.scalars(
+        select(MetricDefinition)
+        .where(MetricDefinition.merged_into_metric_id.is_(None))
+        .order_by(MetricDefinition.metric_key)
+    ).all()
+    live_ids = {metric.id for metric in metrics}
     edges = db.scalars(select(MetricDependency).order_by(MetricDependency.id)).all()
+    # drop any edge still pointing at an alias (rollback restores them; normal
+    # writes keep the graph canonical, this is a defensive guard)
+    edges = [
+        edge
+        for edge in edges
+        if edge.from_metric_id in live_ids and (edge.to_metric_id is None or edge.to_metric_id in live_ids)
+    ]
     metric_dicts = [
         {
             "id": metric.id,
@@ -51,8 +66,20 @@ def graph_payload(db: Session) -> dict:
 
 def impact_payload(db: Session, metric_id: int) -> dict:
     metric = get_metric_or_404(db, metric_id)
+    # historical query on an old code: resolve to the primary metric so the
+    # impact closure runs over the migrated, de-duplicated relation graph
+    target_id = metric.merged_into_metric_id or metric.id
+    target = db.get(MetricDefinition, target_id) or metric
     _metrics, metric_dicts, edge_dicts = _load(db)
-    closure = impact_closure(metric_id, metric_dicts, [edge for edge in edge_dicts if edge["to_id"]])
-    closure["metric_name"] = metric.display_name
-    closure["domain"] = metric.domain
+    closure = impact_closure(target.id, metric_dicts, [edge for edge in edge_dicts if edge["to_id"]])
+    closure["metric_id"] = target.id
+    closure["metric_key"] = target.metric_key
+    closure["metric_name"] = target.display_name
+    closure["domain"] = target.domain
+    if target.id != metric.id:
+        closure["resolved_from"] = {
+            "id": metric.id,
+            "metric_key": metric.metric_key,
+            "name": metric.display_name,
+        }
     return closure

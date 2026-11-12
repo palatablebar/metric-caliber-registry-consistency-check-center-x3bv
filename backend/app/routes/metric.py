@@ -19,12 +19,13 @@ def list_metrics(
     domain: str | None = None,
     status: str | None = None,
     team_id: int | None = None,
+    include_merged: bool = False,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    return metric_controller.list_metrics(db, q, domain, status, team_id, page, page_size)
+    return metric_controller.list_metrics(db, q, domain, status, team_id, include_merged, page, page_size)
 
 
 @router.get("/metrics/{metric_id}")

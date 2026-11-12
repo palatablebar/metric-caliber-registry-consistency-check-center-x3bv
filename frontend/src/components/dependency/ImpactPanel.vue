@@ -5,6 +5,10 @@
       <span v-if="impact" class="faint small">{{ impact.affected_metric_count }} 个下游指标 · {{ impact.board_count }} 个看板</span>
     </div>
     <h3 class="section-title mt-1" style="font-size: 16px">{{ title }}</h3>
+    <p v-if="impact?.resolved_from" class="hint mt-1 resolve-note">
+      旧编码 <b class="mono">{{ impact.resolved_from.metric_key }}</b> 的历史查询，已按合并指针解析到主指标
+      <b class="mono">{{ impact.metric_key }}</b>，下游与看板只计算一次。
+    </p>
     <p v-if="loading" class="hint mt-2">计算依赖闭包中…</p>
     <template v-else-if="impact">
       <div class="impact-grid mt-2">
@@ -41,5 +45,6 @@ defineProps<{ impact: ImpactPayload | null; loading: boolean; title: string }>()
 .impact { border: 1px solid var(--rule); background: var(--paper-raised); padding: 16px 18px; }
 .impact-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 18px; }
 .clean-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.resolve-note { border-left: 2px solid var(--gold); padding-left: 8px; }
 @media (max-width: 700px) { .impact-grid { grid-template-columns: 1fr; } }
 </style>

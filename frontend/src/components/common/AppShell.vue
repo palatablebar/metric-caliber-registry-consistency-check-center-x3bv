@@ -14,8 +14,11 @@
         <router-link to="/graph">
           <span>依赖图</span><span class="idx">02</span>
         </router-link>
+        <router-link v-if="auth.isAdmin" to="/merges">
+          <span>指标合并</span><span class="idx">03</span>
+        </router-link>
         <router-link to="/checks">
-          <span>一致性检查</span><span class="idx">03</span>
+          <span>一致性检查</span><span class="idx">{{ auth.isAdmin ? '04' : '03' }}</span>
         </router-link>
       </nav>
 
